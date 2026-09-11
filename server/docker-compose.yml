@@ -1,0 +1,22 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: study-companion-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: study
+      POSTGRES_PASSWORD: study
+      POSTGRES_DB: study_companion
+    ports:
+      # 5433 on the host so it never collides with a local Postgres on 5432
+      - "5433:5432"
+    volumes:
+      - study_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U study -d study_companion"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  study_pgdata:
