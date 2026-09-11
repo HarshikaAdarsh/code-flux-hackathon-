@@ -472,8 +472,8 @@ erDiagram
 
 | Layer | Suggestion | Why |
 |---|---|---|
-| Frontend | React / Next.js | Fast iteration, good ecosystem for editors (Monaco) and audio |
-| Backend | Node.js (NestJS) or Python (FastAPI) | FastAPI pairs naturally with AI/ML tooling if extraction/sandbox logic lives in Python |
+| Frontend | React | Fast iteration, good ecosystem for editors (Monaco) and audio |
+| Backend | Node.js (expressJS) or python (fastAPI)  | FastAPI pairs naturally with AI/ML tooling if extraction/sandbox logic lives in Python |
 | Database | PostgreSQL | Relational structure fits subject→topic→subtopic tree + assessment history well |
 | Vector store | pgvector (inside Postgres) or a managed vector DB | Keep infra simple for MVP — pgvector avoids a second database |
 | File storage | S3-compatible blob storage | Syllabus PDFs |
@@ -496,11 +496,11 @@ erDiagram
 
 ## 12. Open Questions (need decisions before/while building)
 
-1. Which languages are in scope for voice in Phase 1 — English + Hindi only, or more?
-2. Does mastery score persist and decay over time (spaced repetition style), or reset per assessment?
-3. For coding assessment grading — pure test-case based, or does the LLM also review code style/approach?
-4. Should the AI-generated syllabus tree require explicit user confirmation before becoming "active," or auto-activate with an edit option? (This PRD currently assumes explicit confirmation.)
-5. Max granularity of sub-topics — is there a cap to avoid infinite nesting from a messy syllabus?
+1. Which languages are in scope for voice in Phase 1 — English + Hindi only- yes 
+2. Does mastery score persist and decay over time (spaced repetition style), or reset per assessment? -> decay
+3. For coding assessment grading — pure test-case based, or does the LLM also review code style/approach? - both 
+4. Should the AI-generated syllabus tree require explicit user confirmation before becoming "active," or auto-activate with an edit option? (This PRD currently assumes explicit confirmation.) -> yes
+5. Max granularity of sub-topics — is there a cap to avoid infinite nesting from a messy syllabus?-> cap of 50 topics 
 
 ---
 
@@ -512,4 +512,3 @@ erDiagram
 
 ---
 
-*End of Phase 1 PRD draft. Sections 5–9 (architecture, flows, data model, API) are structured so they can be pulled directly into technical design docs or sprint tickets.*
