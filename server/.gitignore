@@ -10,3 +10,4 @@ __pycache__/
 storage/
 !storage/.gitkeep
 uvicorn.log
+node_modules/

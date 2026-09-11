@@ -1,0 +1,13 @@
+{
+  "name": "study-companion",
+  "private": true,
+  "description": "Convenience scripts so `npm run dev` works from the repo root as well as from client/.",
+  "scripts": {
+    "dev": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "preview": "npm --prefix client run preview",
+    "lint": "npm --prefix client run lint",
+    "setup": "npm --prefix client install",
+    "contract-test": "node client/scripts/contract-test.mjs"
+  }
+}
