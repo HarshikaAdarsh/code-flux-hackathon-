@@ -257,3 +257,18 @@ connection never leaves a half-written lesson.
 `pomodoro_sessions` and `chat_sessions` carry timestamps from day one, and
 `GET /pomodoro/stats` already returns per-day aggregates — the activity
 heatmap only needs a frontend.
+
+## for front end
+The command
+It has to run from client/ — there's no package.json at the repo root:
+cd client
+npm run dev
+
+## for backend 
+ cd server
+ docker compose up -d
+  uvicorn app.main:app --reload --port 8000
+
+  Currently running
+Frontend	http://localhost:5173
+Backend	http://127.0.0.1:8000 (docs)
