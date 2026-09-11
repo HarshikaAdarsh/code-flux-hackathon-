@@ -83,7 +83,7 @@ flowchart TB
     end
 
     subgraph AI["AI Layer"]
-        LLM[LLM - Claude API]
+        LLM[LLM Router - Gemini primary / Groq fallback]
         STT[Speech-to-Text]
         TTS[Text-to-Speech]
         Extractor[Syllabus Parser]
@@ -477,10 +477,122 @@ erDiagram
 | Database | PostgreSQL | Relational structure fits subject→topic→subtopic tree + assessment history well |
 | Vector store | pgvector (inside Postgres) or a managed vector DB | Keep infra simple for MVP — pgvector avoids a second database |
 | File storage | S3-compatible blob storage | Syllabus PDFs |
-| LLM | Claude API | Teaching, syllabus parsing, question generation, error explanation |
+| LLM | Gemini 2.5 Flash-Lite (primary) + Groq Llama 3.3 70B (fallback) | Teaching, syllabus parsing, question generation, error explanation — see §10.1 for routing details |
 | Code execution | Docker-based sandbox (e.g., Judge0 self-hosted or similar) | Isolation + language runners out of the box |
-| STT/TTS | Cloud provider with strong regional language coverage (evaluate at build time) | Voice quality varies significantly by language — evaluate before committing |
+| STT/TTS | Groq Whisper (STT, free tier) + evaluate TTS provider for regional language coverage | Whisper included free on Groq (2,000 audio requests/day); TTS provider TBD — evaluate before committing |
 | Auth | JWT + OAuth (Google) | Standard, low friction for students |
+
+---
+
+### 10.1 LLM Provider Details — Gemini (Primary) + Groq (Fallback)
+
+**Why this pair:** both have generous no-credit-card free tiers, both are fast enough for a live tutoring chat, and the fallback swap is nearly free (same request shape, different URL/key) since Groq exposes an OpenAI-compatible chat completions endpoint.
+
+**Model routing**
+
+| Use case | Model | Why |
+|---|---|---|
+| Tutor chat turns (teaching, follow-ups) | `gemini-2.5-flash-lite` | Highest free-tier limits — this is the highest-volume call in the product |
+| Quiz/question generation, syllabus parsing | `gemini-2.5-flash` (JSON mode) | Needs structured, reliable JSON output more than raw speed |
+| Fallback for any of the above | `llama-3.3-70b-versatile` via Groq | Used only when Gemini is rate-limited or erroring |
+
+**Endpoints**
+
+| Provider | Endpoint | Auth |
+|---|---|---|
+| Gemini | `POST https://generativelanguage.googleapis.com/v1beta/models/{MODEL_ID}:generateContent` | API key in `x-goog-api-key` header |
+| Groq | `POST https://api.groq.com/openai/v1/chat/completions` | API key in `Authorization: Bearer {key}` header (OpenAI-style) |
+
+**Getting API keys (no secret key / OAuth needed for either)**
+
+- **Gemini:** go to `aistudio.google.com/app/apikey` → sign in with a Google account → "Create API key" → pick/create a project → copy the key. Key format: starts with `AIza`, ~39 characters.
+- **Groq:** go to `console.groq.com` → sign up → `console.groq.com/keys` → "Create API Key" → copy immediately (shown only once). Key format: starts with `gsk_`.
+
+**Free-tier rate limits (know these before demo day — build the fallback around them)**
+
+| Provider / Model | RPM | TPM | RPD | Notes |
+|---|---|---|---|---|
+| Gemini `flash` | 10 | 250,000 | 250 | Daily quota resets at midnight Pacific (12:30 PM IST) |
+| Gemini `flash-lite` | Higher than Flash | — | — | Preferred for high-volume tutor turns |
+| Groq (Llama 3.3 70B) | 30 | 6,000–30,000 | 1,000–14,400 | No credit card required |
+| Groq Whisper (STT) | — | — | 2,000 audio requests/day | Included free on same account |
+
+**Fallback chain**
+
+```mermaid
+flowchart LR
+    A[Request needs LLM response] --> B[Call Gemini]
+    B --> C{Success?}
+    C -->|Yes| D[Return response]
+    C -->|429 / error| E[Call Groq - same prompt]
+    E --> F{Success?}
+    F -->|Yes| D
+    F -->|No| G[Return text-only fallback message, skip voice synthesis]
+```
+
+**Reference implementation (Python, try/except fallback)**
+
+```python
+import requests
+
+GEMINI_KEY = "..."   # starts with AIza
+GROQ_KEY = "..."     # starts with gsk_
+
+def call_gemini(prompt: str, model: str = "gemini-2.5-flash-lite") -> str:
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    headers = {"x-goog-api-key": GEMINI_KEY, "Content-Type": "application/json"}
+    body = {"contents": [{"parts": [{"text": prompt}]}]}
+    resp = requests.post(url, headers=headers, json=body, timeout=15)
+    resp.raise_for_status()
+    return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+
+def call_groq(prompt: str, model: str = "llama-3.3-70b-versatile") -> str:
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
+    body = {"model": model, "messages": [{"role": "user", "content": prompt}]}
+    resp = requests.post(url, headers=headers, json=body, timeout=15)
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"]
+
+def get_llm_response(prompt: str) -> dict:
+    """Returns {'text': str, 'voice_enabled': bool, 'provider': str}."""
+    try:
+        return {"text": call_gemini(prompt), "voice_enabled": True, "provider": "gemini"}
+    except requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 429:
+            pass  # fall through to Groq
+        else:
+            pass  # any Gemini error also falls through — keep the tutor responsive
+    except requests.exceptions.RequestException:
+        pass
+
+    try:
+        return {"text": call_groq(prompt), "voice_enabled": True, "provider": "groq"}
+    except requests.exceptions.RequestException:
+        return {
+            "text": "I'm having trouble reaching the AI service right now — here's what I can tell you from what we've covered so far.",
+            "voice_enabled": False,
+            "provider": "none",
+        }
+```
+
+**Pre-demo health check (run ~60 seconds before demoing)**
+
+```bash
+# Gemini
+curl -s -o /dev/null -w "Gemini: %{http_code}\n" \
+  -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent" \
+  -H "x-goog-api-key: $GEMINI_KEY" -H "Content-Type: application/json" \
+  -d '{"contents":[{"parts":[{"text":"ping"}]}]}'
+
+# Groq
+curl -s -o /dev/null -w "Groq: %{http_code}\n" \
+  -X POST "https://api.groq.com/openai/v1/chat/completions" \
+  -H "Authorization: Bearer $GROQ_KEY" -H "Content-Type: application/json" \
+  -d '{"model":"llama-3.3-70b-versatile","messages":[{"role":"user","content":"ping"}]}'
+```
+
+**Implication for §5 architecture diagram and §7 flows:** every `LLM` node/participant in the diagrams above (Section 5 system architecture, and the sequence/flow diagrams in Sections 7.1–7.6) now resolves to this Gemini→Groq routing layer rather than a single provider — no diagram structure changes, only the box behind the `LLM` label.
 
 ---
 
@@ -488,6 +600,7 @@ erDiagram
 
 - **Latency:** teaching chat responses should stream (token-by-token) to feel responsive, not block on full generation.
 - **Cost control:** cache syllabus extraction results; don't regenerate question pools per attempt — generate once, reuse/adapt.
+- **Rate-limit resilience:** since both LLM providers are on free tiers (see §10.1), the backend must queue/throttle non-urgent calls (e.g., background question-pool pre-generation) separately from user-facing tutor turns, so a burst of usage doesn't exhaust the daily quota mid-session.
 - **Sandbox security:** no network access from user-submitted code; strict timeouts (e.g., 5–10s) and memory caps.
 - **Data privacy:** syllabus PDFs and chat transcripts are user-owned; deletion of a subject cascades to its chats/assessments.
 - **Language fallback:** if STT/TTS fails for a requested language, fall back to text mode with a clear message rather than failing silently.
@@ -498,7 +611,7 @@ erDiagram
 
 1. Which languages are in scope for voice in Phase 1 — English + Hindi only- yes 
 2. Does mastery score persist and decay over time (spaced repetition style), or reset per assessment? -> decay
-3. For coding assessment grading — pure test-case based, or does the LLM also review code style/approach? - both 
+3. ~~For coding assessment grading — pure test-case based, or does the LLM also review code style/approach?~~ **Decided: both** — test cases determine pass/fail (feeds difficulty ladder), LLM additionally reviews style/approach for the "teach from error" feedback even on passing submissions.
 4. Should the AI-generated syllabus tree require explicit user confirmation before becoming "active," or auto-activate with an edit option? (This PRD currently assumes explicit confirmation.) -> yes
 5. Max granularity of sub-topics — is there a cap to avoid infinite nesting from a messy syllabus?-> cap of 50 topics 
 
