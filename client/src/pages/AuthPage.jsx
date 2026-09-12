@@ -3,9 +3,10 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { LANGUAGES } from '../lib/format';
 import { CubeBook, CubeChat, CubeCheck } from '../lib/icons';
+import GoogleSignIn from '../features/auth/GoogleSignIn';
 
 export default function AuthPage() {
-  const { user, ready, login, signup } = useAuth();
+  const { user, ready, login, signup, loginWithGoogle } = useAuth();
   const location = useLocation();
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ name: '', email: '', password: '', preferred_language: 'en' });
@@ -31,6 +32,18 @@ export default function AuthPage() {
           preferred_language: form.preferred_language,
         });
       }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function withGoogle(idToken) {
+    setError('');
+    setBusy(true);
+    try {
+      await loginWithGoogle(idToken);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -68,6 +81,8 @@ export default function AuthPage() {
               Sign up
             </button>
           </div>
+
+          <GoogleSignIn onCredential={withGoogle} disabled={busy} />
 
           <form onSubmit={submit}>
             {mode === 'signup' && (

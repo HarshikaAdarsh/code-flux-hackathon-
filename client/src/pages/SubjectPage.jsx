@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { assessments as assessApi, subjects as subjectsApi } from '../lib/api';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { assessments as assessApi, fileUrl, subjects as subjectsApi } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useChrome } from '../lib/useChrome';
@@ -8,10 +8,12 @@ import { spineColor } from '../lib/format';
 import TopicTree from '../features/tree/TopicTree';
 import TutorPanel from '../features/tutor/TutorPanel';
 import TreeEditor, { cleanTree, emptyTopic } from '../components/TreeEditor';
-import { Chart, Trash } from '../lib/icons';
+import Modal from '../components/Modal';
+import { Chart, Doc, Pencil, Trash } from '../lib/icons';
 
 export default function SubjectPage() {
   const { id } = useParams();
+  const [search, setSearch] = useSearchParams();
   const navigate = useNavigate();
   const toast = useToast();
   const { language } = useAuth();
@@ -22,6 +24,9 @@ export default function SubjectPage() {
   const [starting, setStarting] = useState(false);
   const [draftTopics, setDraftTopics] = useState([emptyTopic()]);
   const [confirming, setConfirming] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [form, setForm] = useState({ name: '', type: 'non-coding' });
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     const data = await subjectsApi.tree(id);
@@ -39,11 +44,15 @@ export default function SubjectPage() {
         if (!alive) return;
         // A draft subject has no committed tree yet (PRD 7.1 / open question 4).
         if (data.status === 'draft') setDraftTopics(data.topics?.length ? data.topics : [emptyTopic()]);
-        // Select the first unfinished sub-topic so the tutor has a scope.
-        const first =
-          data.topics.flatMap((t) => t.subtopics).find((s) => !s.is_completed) ||
-          data.topics.flatMap((t) => t.subtopics)[0];
-        if (first) setSelectedId(first.id);
+        // ?subtopic= wins (history "Continue" links here); otherwise pick the
+        // first unfinished sub-topic so the tutor always has a scope.
+        const all = data.topics.flatMap((t) => t.subtopics);
+        const requested = search.get('subtopic');
+        const target =
+          (requested && all.find((s) => s.id === requested)) ||
+          all.find((s) => !s.is_completed) ||
+          all[0];
+        if (target) setSelectedId(target.id);
       })
       .catch((err) => alive && setError(err.message));
     return () => {
@@ -108,6 +117,29 @@ export default function SubjectPage() {
       toast.error(err);
     } finally {
       setConfirming(false);
+    }
+  }
+
+  function openSettings() {
+    setForm({ name: tree.name, type: tree.type });
+    setSettingsOpen(true);
+  }
+
+  async function saveSettings() {
+    if (!form.name.trim()) {
+      toast.error('The subject needs a name.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await subjectsApi.update(id, { name: form.name.trim(), type: form.type });
+      await load();
+      setSettingsOpen(false);
+      toast.success('Subject updated.');
+    } catch (err) {
+      toast.error(err);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -195,9 +227,13 @@ export default function SubjectPage() {
               <Chart style={{ width: 15, height: 15 }} />
               Strengths &amp; weaknesses
             </Link>
-            <button className="btn btn-ghost" onClick={removeSubject} type="button">
-              <Trash style={{ width: 15, height: 15 }} />
-              Delete subject
+            <Link className="btn btn-ghost" to={`/subjects/${id}/history`}>
+              <Doc style={{ width: 15, height: 15 }} />
+              History
+            </Link>
+            <button className="btn btn-ghost" onClick={openSettings} type="button">
+              <Pencil style={{ width: 15, height: 15 }} />
+              Settings
             </button>
           </div>
         </div>
@@ -219,6 +255,55 @@ export default function SubjectPage() {
           onAssess={startAssessment}
         />
       </div>
+
+      <Modal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        title="Subject settings"
+        hint="Changing the type switches how assessments work: coding subjects give you problems to solve in an editor."
+        actions={(
+          <>
+            <button className="btn btn-danger" onClick={removeSubject} type="button">
+              <Trash style={{ width: 14, height: 14 }} />
+              Delete subject
+            </button>
+            <button className="btn btn-ghost" onClick={() => setSettingsOpen(false)} type="button">
+              Cancel
+            </button>
+            <button className="btn btn-marker" onClick={saveSettings} disabled={saving} type="button">
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </>
+        )}
+      >
+        <div className="field">
+          <label htmlFor="sname">Name</label>
+          <input
+            id="sname"
+            value={form.name}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="stype">Type</label>
+          <select
+            id="stype"
+            value={form.type}
+            onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
+          >
+            <option value="non-coding">Theory</option>
+            <option value="coding">Coding</option>
+          </select>
+        </div>
+        {tree.syllabus_file_url && (
+          <p className="muted" style={{ fontSize: 13 }}>
+            Uploaded syllabus:{' '}
+            <a href={fileUrl(tree.syllabus_file_url)} target="_blank" rel="noreferrer">
+              open the original file
+            </a>
+          </p>
+        )}
+      </Modal>
 
       {starting && (
         <div className="backdrop">

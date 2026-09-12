@@ -45,6 +45,11 @@ export function AuthProvider({ children }) {
     [adopt],
   );
 
+  const loginWithGoogle = useCallback(
+    async (idToken) => adopt(await authApi.google(idToken)),
+    [adopt],
+  );
+
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
@@ -57,8 +62,11 @@ export function AuthProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, ready, login, signup, logout, updateProfile, language: user?.preferred_language || 'en' }),
-    [user, ready, login, signup, logout, updateProfile],
+    () => ({
+      user, ready, login, signup, loginWithGoogle, logout, updateProfile,
+      language: user?.preferred_language || 'en',
+    }),
+    [user, ready, login, signup, loginWithGoogle, logout, updateProfile],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

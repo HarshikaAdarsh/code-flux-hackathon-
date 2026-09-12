@@ -1,13 +1,18 @@
 {
   "name": "study-companion",
   "private": true,
-  "description": "Convenience scripts so `npm run dev` works from the repo root as well as from client/.",
+  "description": "AI Smart Study Companion — run the FastAPI backend and React frontend together.",
   "scripts": {
-    "dev": "npm --prefix client run dev",
+    "dev": "node scripts/dev.mjs",
+    "dev:api": "node scripts/dev.mjs --api",
+    "dev:web": "node scripts/dev.mjs --web",
+    "stop": "node scripts/stop.mjs",
+    "setup": "node scripts/setup.mjs",
+    "db:up": "docker compose --project-directory server up -d",
+    "db:down": "docker compose --project-directory server down",
     "build": "npm --prefix client run build",
-    "preview": "npm --prefix client run preview",
     "lint": "npm --prefix client run lint",
-    "setup": "npm --prefix client install",
-    "contract-test": "node client/scripts/contract-test.mjs"
+    "test": "node scripts/test.mjs",
+    "test:contract": "node client/scripts/contract-test.mjs"
   }
 }

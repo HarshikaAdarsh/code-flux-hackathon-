@@ -2,9 +2,72 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { health as healthApi } from '../lib/api';
 import { initials, LANGUAGES } from '../lib/format';
 import { Logout } from '../lib/icons';
 import PomodoroWidget from '../features/pomodoro/PomodoroWidget';
+
+/**
+ * System status (PRD 10.1's pre-demo check, in the UI).
+ * Loaded only when the menu opens so it never slows a page down.
+ */
+function SystemStatus({ active }) {
+  const [state, setState] = useState(null);
+
+  useEffect(() => {
+    if (!active) return undefined;
+    let alive = true;
+    setState(null);
+    healthApi
+      .full()
+      .then((h) => alive && setState(h))
+      .catch(() => alive && setState({ error: true }));
+    return () => {
+      alive = false;
+    };
+  }, [active]);
+
+  if (!state) {
+    return (
+      <div className="status-row" style={{ marginTop: 12 }}>
+        <span className="spinner" style={{ width: 12, height: 12 }} />
+        <span className="name">Checking services…</span>
+      </div>
+    );
+  }
+
+  if (state.error) {
+    return (
+      <div className="status-row" style={{ marginTop: 12 }}>
+        <span className="status-dot bad" />
+        <span className="name">Backend unreachable</span>
+      </div>
+    );
+  }
+
+  const ai = state.llm?.gemini?.ok || state.llm?.groq?.ok;
+  const rows = [
+    { name: 'Database', ok: state.database?.ok, val: state.database?.pgvector ? 'pgvector' : '' },
+    { name: 'AI tutor', ok: ai, val: state.llm?.gemini?.ok ? 'gemini' : state.llm?.groq?.ok ? 'groq' : 'down' },
+    { name: 'Code sandbox', ok: state.sandbox?.runner === 'docker', val: state.sandbox?.runner },
+    { name: 'Voice', ok: state.voice?.stt?.configured, val: state.voice?.stt?.configured ? 'ready' : 'no key' },
+  ];
+
+  return (
+    <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1.5px solid var(--line)' }}>
+      <p className="muted" style={{ fontSize: 11.5, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>
+        System status
+      </p>
+      {rows.map((r) => (
+        <div className="status-row" key={r.name}>
+          <span className={`status-dot ${r.ok ? 'ok' : 'warn'}`} />
+          <span className="name">{r.name}</span>
+          <span className="val muted">{r.val}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function AccountMenu() {
   const { user, logout, updateProfile } = useAuth();
@@ -79,6 +142,8 @@ function AccountMenu() {
               ))}
             </select>
           </div>
+
+          <SystemStatus active={open} />
 
           <button className="btn btn-ghost btn-sm btn-block" style={{ marginTop: 14 }} onClick={logout}>
             <Logout style={{ width: 14, height: 14 }} />

@@ -7,30 +7,34 @@ FastAPI + PostgreSQL (pgvector) backend implementing the Phase 1 MVP in
 
 ## Quick start
 
+From the repo root, `npm run setup` then `npm run dev` starts this backend
+along with the database and frontend. To run only the backend:
+
+```bash
+npm run dev:api          # from the repo root
+```
+
+<details>
+<summary>Manual steps, if you prefer</summary>
+
 ```bash
 cd server
 
-# 1. Database (Postgres 16 + pgvector, on host port 5433)
-docker compose up -d
-
-# 2. Python environment
+docker compose up -d                 # Postgres 16 + pgvector on host port 5433
 python -m venv .venv
-.venv\Scripts\activate           # Windows
-# source .venv/bin/activate      # macOS / Linux
+.venv\Scripts\activate               # Windows
+# source .venv/bin/activate          # macOS / Linux
 pip install -r requirements.txt
-
-# 3. Configuration — add your API keys
-cp .env.example .env
-
-# 4. Schema
+cp .env.example .env                 # then add your API keys
 alembic upgrade head
+docker pull python:3.12-slim         # sandbox runner for coding assessments
 
-# 5. Sandbox runner image (for coding assessments)
-docker pull python:3.12-slim
-
-# 6. Run
-uvicorn app.main:app --reload --port 8000
+# Use the venv's python; a bare `uvicorn` may resolve to a global install
+# that does not have this project's dependencies.
+.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
 ```
+
+</details>
 
 Interactive API docs: <http://127.0.0.1:8000/docs>
 Pre-demo health check: <http://127.0.0.1:8000/health/full>

@@ -94,9 +94,13 @@ async function request(path, { method = 'GET', body, form, signal } = {}) {
 export const fileUrl = (p) => (p?.startsWith('/') ? `${API_URL}${p}` : p);
 
 /* ------------------------------------------------------------------ auth */
+export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+
 export const auth = {
   signup: (payload) => request('/auth/signup', { method: 'POST', body: payload }),
   login: (payload) => request('/auth/login', { method: 'POST', body: payload }),
+  // Exchanges a Google ID token for our own JWT (PRD 7.7).
+  google: (idToken) => request('/auth/google', { method: 'POST', body: { id_token: idToken } }),
   me: () => request('/auth/me'),
   updateMe: (payload) => request('/auth/me', { method: 'PATCH', body: payload }),
 };

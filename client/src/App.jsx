@@ -8,6 +8,9 @@ import NewSubjectPage from './pages/NewSubjectPage';
 import SubjectPage from './pages/SubjectPage';
 import AssessmentPage from './pages/AssessmentPage';
 import ReportPage from './pages/ReportPage';
+import HistoryPage from './pages/HistoryPage';
+import NotFoundPage from './pages/NotFoundPage';
+import ErrorBoundary from './components/ErrorBoundary';
 
 function RequireAuth({ children }) {
   const { user, ready } = useAuth();
@@ -39,19 +42,22 @@ function AppRoutes() {
         <Route path="/subjects/new" element={<NewSubjectPage />} />
         <Route path="/subjects/:id" element={<SubjectPage />} />
         <Route path="/subjects/:id/report" element={<ReportPage />} />
+        <Route path="/subjects/:id/history" element={<HistoryPage />} />
         <Route path="/assessments/:attemptId" element={<AssessmentPage />} />
       </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
 }
 
 export default function App() {
   return (
-    <ToastProvider>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </ToastProvider>
+    <ErrorBoundary>
+      <ToastProvider>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </ToastProvider>
+    </ErrorBoundary>
   );
 }

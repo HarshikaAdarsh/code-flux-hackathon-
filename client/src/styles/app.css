@@ -49,8 +49,8 @@
 .mastery .bar span{background:var(--m-color,var(--marker-deep))}
 
 /* ---------- tutor panel ---------- */
-.tutor{position:sticky;top:76px;background:var(--surface);border:1.5px solid var(--line);border-radius:var(--radius);display:flex;flex-direction:column;height:calc(100vh - 96px);min-height:560px;overflow:hidden}
-.tutor-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1.5px solid var(--line)}
+.tutor{position:sticky;top:76px;background:var(--surface);border:1.5px solid var(--line);border-radius:var(--radius);display:flex;flex-direction:column;height:calc(100vh - 96px);min-height:min(560px,calc(100vh - 96px));overflow:hidden;min-width:0}
+.tutor-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1.5px solid var(--line);min-width:0}
 .tutor-head h2{font-size:15.5px}
 .tutor-head .scope{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 .live{font-size:11.5px;font-weight:700;color:var(--red);display:inline-flex;align-items:center;gap:6px;font-family:var(--font-display);flex:none}
@@ -80,10 +80,10 @@
 .orb-sm svg{width:18px;height:18px}
 @keyframes ring{from{transform:scale(1);opacity:.75}to{transform:scale(1.85);opacity:0}}
 
-.transcript{flex:1;overflow:auto;padding:16px 16px 6px;display:flex;flex-direction:column;gap:14px}
-.msg{max-width:94%;font-size:15px;line-height:1.62}
+.transcript{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:16px 16px 6px;display:flex;flex-direction:column;gap:14px}
+.msg{max-width:94%;min-width:0;font-size:15px;line-height:1.62;overflow-wrap:anywhere;word-break:break-word}
 .msg.tutor{align-self:flex-start;min-width:0}
-.msg.user{align-self:flex-end;background:var(--ink);color:#fff;padding:10px 14px;border-radius:14px 14px 4px 14px;max-width:84%;white-space:pre-wrap}
+.msg.user{align-self:flex-end;background:var(--ink);color:#fff;padding:10px 14px;border-radius:14px 14px 4px 14px;max-width:84%;white-space:pre-wrap;overflow-wrap:anywhere}
 .msg .prov{font-size:11px;font-family:var(--font-display);color:var(--muted);margin-top:6px}
 
 .chips{display:flex;flex-wrap:wrap;gap:8px;padding:6px 16px 10px}
@@ -109,7 +109,7 @@
 .md ol{list-style:decimal}
 .md li{margin-bottom:4px}
 .md strong{font-weight:700}
-.md code{font-family:var(--font-display);font-size:13px;background:var(--ink-soft);padding:1px 5px;border-radius:4px}
+.md code{font-family:var(--font-display);font-size:13px;background:var(--ink-soft);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
 .md pre{background:var(--border-dark);color:#E8EAF2;padding:12px 14px;border-radius:10px;overflow-x:auto;margin:0 0 10px}
 .md pre code{background:none;color:inherit;padding:0;font-size:12.5px;line-height:1.55}
 .md blockquote{border-left:3px solid var(--marker-deep);padding-left:12px;margin:0 0 10px;color:var(--muted)}
@@ -241,3 +241,44 @@
   .tutor{position:static;height:auto;min-height:520px}
   .assess.coding{grid-template-columns:1fr}
 }
+
+/* ---------- auth divider ---------- */
+.divider{display:flex;align-items:center;gap:12px;margin:18px 0 4px;color:var(--muted);font-size:12.5px}
+.divider span{flex:1;height:1px;background:var(--line-strong)}
+
+/* ---------- history list ---------- */
+.history{display:flex;flex-direction:column;gap:10px}
+.history-row{display:flex;align-items:center;gap:14px;background:var(--surface);border:1.5px solid var(--line);border-left-width:4px;border-left-color:var(--line-strong);border-radius:var(--radius);padding:13px 16px;transition:border-color .15s}
+.history-row:hover{border-color:var(--line-strong)}
+.history-icon{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;flex:none;background:var(--paper);border:1.5px solid var(--line-strong);color:var(--muted)}
+.history-icon svg{width:17px;height:17px}
+.history-icon.strength{background:var(--green-soft);border-color:var(--green);color:var(--green)}
+.history-icon.weakness{background:var(--red-soft);border-color:var(--red);color:var(--red)}
+.history-icon.needs_practice{background:#FDF0DC;border-color:var(--gold);color:var(--gold-deep)}
+.history-body{flex:1;min-width:0}
+.history-title{font-weight:600;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.history-meta{font-size:12.5px;color:var(--muted);margin-top:2px}
+.history-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+
+.transcript-replay{display:flex;flex-direction:column;gap:14px;max-height:60vh;overflow:auto;padding:4px 2px}
+.transcript-replay .msg{max-width:94%}
+
+@media (max-width:700px){
+  .history-row{flex-wrap:wrap}
+  .history-actions{width:100%;justify-content:flex-start}
+}
+
+/* ---------- system status ---------- */
+.status-dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--line-strong)}
+.status-dot.ok{background:var(--green)}
+.status-dot.warn{background:var(--gold)}
+.status-dot.bad{background:var(--red)}
+.status-row{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0}
+.status-row .name{flex:1;color:var(--muted)}
+.status-row .val{font-family:var(--font-display);font-size:11.5px}
+
+/* ---------- voice recording state ---------- */
+.orb.listening{animation:recPulse 1.6s ease-in-out infinite}
+@keyframes recPulse{50%{box-shadow:0 0 0 6px rgba(216,64,58,.18)}}
+.orb.thinking svg,.orb.thinking .spinner{border-top-color:#fff}
+.dock .orb-sm.listening,.dock .orb-sm.thinking{border-color:var(--border-dark)}
