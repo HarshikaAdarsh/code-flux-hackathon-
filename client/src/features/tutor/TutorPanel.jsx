@@ -64,9 +64,14 @@ export default function TutorPanel({ subject, topic, subtopic, language, onAsses
   }, [subtopic?.id]);
 
   useEffect(() => {
-    if (atBottom.current && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    const el = scrollRef.current;
+    if (!el || !atBottom.current) return;
+    // Instant while tokens arrive — a smooth animation restarted on every
+    // token looks like lag. Smooth only for the occasional idle jump.
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: streaming ? 'auto' : 'smooth',
+    });
   });
 
   useEffect(() => () => abortRef.current?.(), []);
@@ -266,7 +271,7 @@ export default function TutorPanel({ subject, topic, subtopic, language, onAsses
   const micIcon = vc.transcribing ? <span className="spinner" /> : vc.recording ? <Stop /> : <Mic />;
 
   return (
-    <aside className="tutor" aria-label="AI tutor">
+    <aside className="tutor-panel" aria-label="AI tutor">
       <div className="tutor-head">
         <h2>Tutor</h2>
         <span className="scope">
@@ -341,7 +346,7 @@ export default function TutorPanel({ subject, topic, subtopic, language, onAsses
                 {m.content}
               </div>
             ) : (
-              <div className="msg tutor" key={i}>
+              <div className={`msg tutor${m.pending && m.content ? ' streaming' : ''}`} key={i}>
                 {m.content ? (
                   <Markdown>{m.content}</Markdown>
                 ) : (
