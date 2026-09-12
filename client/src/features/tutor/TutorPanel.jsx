@@ -98,6 +98,10 @@ export default function TutorPanel({ subject, topic, subtopic, language, onAsses
 
       let full = '';
       let provider = null;
+      // Track 1: the backend audits each sentence before it may be spoken.
+      // `speak` holds the approved or corrected text, keyed by sentence index;
+      // raw streamed text is never sent to text-to-speech.
+      const audited = new Map();
 
       abortRef.current = teachApi.stream(
         {
@@ -122,24 +126,51 @@ export default function TutorPanel({ subject, topic, subtopic, language, onAsses
                 next[next.length - 1] = { role: 'assistant', content: full, pending: true };
                 return next;
               });
+            } else if (ev.type === 'verified') {
+              audited.set(ev.index, ev);
             } else if (ev.type === 'done') {
+              const verdicts = [...audited.entries()]
+                .sort((a, b) => a[0] - b[0])
+                .map(([, v]) => v);
+              const corrections = verdicts.filter((v) => v.note).map((v) => v.note);
+              // Only audited text is ever spoken.
+              const safeText = verdicts
+                .map((v) => v.speak)
+                .filter(Boolean)
+                .join(' ')
+                .trim();
+
               setMessages((m) => {
                 const next = [...m];
                 next[next.length - 1] = {
                   role: 'assistant',
                   content: full,
                   provider: provider || ev.provider,
+                  corrections,
                 };
                 return next;
               });
               setStreaming(false);
+
               // Read the answer aloud when voice output is on (PRD 7.5).
-              if (voiceOnRef.current && full) {
-                vc.speak(full, language).then((played) => {
-                  if (!played) {
-                    toast.show("Voice isn't available for this reply — showing the text.");
-                  }
-                });
+              // Falls back to the raw reply only when nothing was audited at
+              // all (auditing disabled or the auditor was unreachable).
+              if (voiceOnRef.current) {
+                const spoken = safeText || full;
+                if (spoken) {
+                  vc.speak(spoken, language).then((played) => {
+                    if (!played) {
+                      toast.show("Voice isn't available for this reply — showing the text.");
+                    }
+                  });
+                }
+              }
+              if (corrections.length) {
+                toast.show(
+                  corrections.length === 1
+                    ? '1 statement was corrected before being read aloud.'
+                    : `${corrections.length} statements were corrected before being read aloud.`,
+                );
               }
             } else if (ev.type === 'error') {
               toast.error(
@@ -317,6 +348,19 @@ export default function TutorPanel({ subject, topic, subtopic, language, onAsses
                   <span className="typing" aria-label="Tutor is thinking">
                     <i /><i /><i />
                   </span>
+                )}
+                {m.corrections?.length > 0 && (
+                  <div className="corrections" role="note">
+                    <p className="corrections-head">
+                      Fact check: {m.corrections.length} correction
+                      {m.corrections.length > 1 ? 's' : ''}
+                    </p>
+                    <ul>
+                      {m.corrections.map((c, k) => (
+                        <li key={k}>{c}</li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
                 {m.provider && m.provider !== 'none' && <p className="prov">via {m.provider}</p>}
               </div>

@@ -58,6 +58,7 @@ python scripts/test_engine.py     # adaptive ladder, mastery, decay, parsing (no
 python scripts/test_sandbox.py    # code execution + security constraints (needs Docker)
 python scripts/smoke_test.py      # full API flow against a running server
 python scripts/test_features.py   # syllabus parsing, streaming, coding loop, voice (needs keys)
+python scripts/test_verification.py  # accuracy guardrails (buffering offline, auditors need keys)
 ```
 
 `smoke_test.py` reports AI-backed steps as **SKIP** rather than fail when no key
@@ -96,6 +97,7 @@ app/
     retrieval.py    pgvector search (+ keyword fallback)
     teaching.py     shared chat-session logic
     assessment.py   adaptive ladder, mastery scoring, decay, classification
+    verifier.py     accuracy guardrails: sentence audits + the critique loop
     sandbox.py      Docker-isolated Python execution
     voice.py        Groq Whisper STT + edge-tts TTS
     storage.py      file storage behind a swappable interface
@@ -141,9 +143,77 @@ overhead) and never use a tiny `max_tokens`.
 Streaming falls back to Groq only if Gemini fails *before* the first token —
 switching providers mid-sentence would produce incoherent output.
 
-**Two rate-limit lanes** (PRD §11) keep background work from starving live
-tutoring: `interactive` (tutor turns, grading, hints) and `background`
-(question pools, embeddings, report summaries).
+**Three rate-limit lanes** (PRD §11) keep background work from starving live
+tutoring: `interactive` (tutor turns, grading, hints), `background` (question
+pools, embeddings, report summaries) and `verify` (accuracy audits).
+
+---
+
+## Accuracy guardrails
+
+LLM output can contain a wrong formula, an invented definition, or a claim that
+contradicts the uploaded syllabus. Speaking that aloud to a student is worse
+than saying nothing, so two tiers of verification sit in front of it. Both use
+the fast model tier and their own rate-limit lane.
+
+### Track 1 — live chat, before text-to-speech
+
+| Step | Behaviour |
+|---|---|
+| Streaming | Tokens reach the UI immediately. Audits run as background tasks and never block a token. |
+| Buffering | Tokens are buffered server-side to sentence boundaries. Fenced code and mermaid blocks are excluded — they are not spoken. |
+| Pre-filter | Sentences under 25 characters or fewer than 3 words carry no checkable claim and are skipped, saving quota. |
+| Audit | Remaining sentences are scored 0-100 against the question and the retrieved syllabus context, at temperature 0. |
+| ≥ 80 | Approved. The sentence is spoken exactly as written. |
+| < 80 | Intercepted. A corrected rewrite is what reaches TTS — the false claim is never vocalised — and a correction note is appended to the transcript. |
+
+Audits are **batched four sentences per request**. Sentence-level verdicts are
+preserved (each gets its own score, rewrite and note), but a 14-sentence answer
+costs 4 requests rather than 14. That took end-to-end audit latency from 38s to
+about 4s after the last token, and keeps the guardrail inside a free tier.
+
+The stream emits one extra SSE event per sentence:
+
+```json
+{"type":"verified","index":3,"approved":false,"score":20,
+ "speak":"A primary key cannot contain NULL values.",
+ "note":"Correction: primary keys cannot contain NULL values.","checked":true}
+```
+
+The client speaks only the assembled `speak` text. If the auditor is
+unreachable the sentence passes through with `checked:false` — an unavailable
+auditor degrades to "spoken as written" rather than silencing the tutor.
+
+### Track 2 — critical tasks, before the UI or the database
+
+Question pools, official solutions and grading are gated: nothing unverified is
+rendered or stored.
+
+1. Generate, then audit the complete content for factual accuracy,
+   solvability, fairness and scope.
+2. **≥ 80** → approved.
+3. **< 80** → discard and regenerate **once**, armed with the auditor's
+   specific critique. Total attempts are hard-capped at 2 — there is no path
+   that loops.
+4. Still failing → return the canonical disclaimer pointing at the syllabus
+   section. A wrong answer key would corrupt a student's mastery score, so
+   storing nothing is the correct outcome.
+
+### Settings
+
+All in `.env` (see `.env.example`): `VERIFICATION_ENABLED`,
+`VERIFICATION_THRESHOLD` (80), `VERIFICATION_MAX_ATTEMPTS` (2),
+`VERIFY_LIVE_CHAT`, `VERIFICATION_MIN_CHARS` (25), `VERIFIER_MODEL`,
+`LLM_VERIFY_RPM`.
+
+Set `VERIFY_LIVE_CHAT=false` to keep the Track 2 gate but skip live-chat
+audits if quota is tight.
+
+### Cost
+
+Roughly one extra request per four tutor sentences, and one extra request per
+question pool (two if the first attempt is rejected). Pools are cached, so a
+retake costs nothing.
 
 ### Cost control
 

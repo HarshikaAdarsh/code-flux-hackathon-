@@ -56,6 +56,26 @@ class Settings(BaseSettings):
     # --- Free-tier throttling (PRD 11: user-facing vs background lanes) ---
     llm_interactive_rpm: int = 12
     llm_background_rpm: int = 4
+    # Verification runs in its own lane so audits can never starve a live
+    # tutor turn. Batching keeps the request count low (roughly one per four
+    # sentences), so this can be generous without threatening the daily quota.
+    llm_verify_rpm: int = 60
+
+    # --- Accuracy verification / hallucination guardrails ---
+    verification_enabled: bool = True
+    # Content at or above this score is approved; below it is rewritten
+    # (live chat) or regenerated (critical tasks).
+    verification_threshold: int = 80
+    # Total generation attempts for critical tasks: the original plus one
+    # critique-guided retry. Never unbounded — free tiers are finite.
+    verification_max_attempts: int = 2
+    # Audit live tutor sentences before they reach text-to-speech.
+    verify_live_chat: bool = True
+    # Sentences shorter than this carry no checkable claim; skipping them
+    # keeps quota for the statements that matter.
+    verification_min_chars: int = 25
+    # Empty falls back to the fast chat model (flash-lite).
+    verifier_model: str = ""
 
     # --- Syllabus parsing ---
     max_topics_per_subject: int = 50  # PRD open question 5

@@ -505,3 +505,219 @@ def build_report_messages(
             ),
         },
     ]
+
+
+# --------------------------------------------------------------------------
+# Accuracy verification (hallucination guardrails)
+# --------------------------------------------------------------------------
+
+SENTENCE_AUDIT_SYSTEM = """You are a fact-checker sitting between an AI tutor and a
+text-to-speech engine. One sentence of the tutor's answer is about to be spoken
+aloud to a student. Your job is to stop false statements being vocalised.
+
+Reply with ONLY this JSON:
+{{"score": 0-100,
+  "safe_text": "the sentence to speak",
+  "note": null or "one short sentence naming the error"}}
+
+SCORING — judge only the sentence given, in the context supplied:
+- 100-90  factually correct, consistent with the syllabus context
+- 89-80   correct but loosely worded; still safe to speak
+- 79-50   a real factual error, a wrong formula, an invented definition, or a
+          claim that contradicts the syllabus context
+- 49-0    seriously wrong or fabricated
+
+Judge the sentence as it would be heard. Do NOT penalise:
+- conversational framing, encouragement, or a question to the student
+- correct statements that merely add detail beyond the syllabus context
+- incomplete phrasing caused by the sentence being part of a longer answer
+
+WHEN THE SCORE IS {threshold} OR ABOVE:
+  "safe_text" = the original sentence, unchanged. "note" = null.
+
+WHEN THE SCORE IS BELOW {threshold}:
+  "safe_text" = a corrected rewrite, same length and tone, stating the TRUTH.
+  Never speak the false claim, not even to deny it.
+  "note" = one short sentence telling the student what was wrong, e.g.
+  "Correction: normalization reduces redundancy; it does not remove all of it."
+
+Write safe_text and note in {language}. Keep technical terms in English.
+Be decisive: this runs on every sentence and must not add latency."""
+
+
+def build_sentence_audit_messages(
+    *,
+    sentence: str,
+    question: str,
+    subject: str,
+    subtopic: str,
+    context: Optional[str],
+    language: str,
+    threshold: int,
+) -> List[Dict[str, str]]:
+    body = (
+        f"Subject: {subject or 'unknown'}\n"
+        f"Sub-topic: {subtopic or 'unknown'}\n"
+        f"The student asked: {question or '(the tutor is teaching the sub-topic)'}\n"
+    )
+    if context:
+        body += f"\nSyllabus context (the student's own material):\n{context[:2000]}\n"
+    body += f"\nSENTENCE TO CHECK:\n{sentence}"
+
+    return [
+        {
+            "role": "system",
+            "content": SENTENCE_AUDIT_SYSTEM.format(
+                language=language_name(language), threshold=threshold
+            ),
+        },
+        {"role": "user", "content": body},
+    ]
+
+
+CRITICAL_AUDIT_SYSTEM = """You review AI-generated study material before it is shown
+to a student or written to the database. Nothing you approve can be corrected
+later, so be strict.
+
+Reply with ONLY this JSON:
+{{"score": 0-100,
+  "verdict": "pass" | "reject",
+  "flaws": ["specific problem", "..."],
+  "guidance": "what the generator must do differently next time"}}
+
+You are checking {kind}.
+
+CHECK, in order:
+1. FACTUAL ACCURACY — every claim, definition, formula and marked-correct
+   answer must be true. One wrong answer key is an automatic reject.
+2. SOLVABILITY — a question must be answerable from the stated sub-topic alone,
+   with enough information given. For coding problems, the reference solution
+   must actually satisfy every listed test case; check the expected values by
+   hand.
+3. FAIRNESS — exactly one defensible correct option; distractors plausible but
+   clearly wrong; no trick wording, no "all of the above", no answer given away
+   by option length.
+4. SCOPE — matches the stated difficulty and stays inside the sub-topic.
+
+SCORING:
+- 100-90  correct, solvable, fair — ship it
+- 89-80   minor wording issues only, still correct and fair
+- 79-50   a wrong answer key, an unsolvable item, or two defensible answers
+- 49-0    fabricated content or badly out of scope
+
+verdict is "pass" only when score >= {threshold}.
+"flaws" must name the exact item and what is wrong with it — "question 3's
+answer key says 2NF but the described dependency is partial, so it is 1NF".
+"guidance" is an instruction to the generator, not a description of the error.
+Leave flaws empty and guidance empty when you pass the content."""
+
+
+def build_critical_audit_messages(
+    *,
+    kind: str,
+    payload: str,
+    subject: str,
+    topic: str,
+    subtopic: str,
+    difficulty: Optional[str] = None,
+    context: Optional[str] = None,
+    threshold: int = 80,
+) -> List[Dict[str, str]]:
+    body = (
+        f"Subject: {subject}\nTopic: {topic}\nSub-topic: {subtopic}\n"
+    )
+    if difficulty:
+        body += f"Stated difficulty: {difficulty}\n"
+    if context:
+        body += f"\nSyllabus context:\n{context[:2000]}\n"
+    body += f"\nCONTENT TO REVIEW:\n{payload[:12000]}"
+
+    return [
+        {
+            "role": "system",
+            "content": CRITICAL_AUDIT_SYSTEM.format(kind=kind, threshold=threshold),
+        },
+        {"role": "user", "content": body},
+    ]
+
+
+# Shown instead of unverified content when both attempts fail (PRD 11:
+# degrade honestly rather than present something we cannot stand behind).
+CANONICAL_FALLBACK = (
+    "I can't verify this with enough confidence to show it to you, so I'd rather "
+    "not guess. Please check **{subtopic}** in your syllabus material, and ask me "
+    "about the specific part you want explained — I can usually help once the "
+    "question is narrower."
+)
+
+
+def canonical_fallback(subtopic: str) -> str:
+    return CANONICAL_FALLBACK.format(subtopic=subtopic or "this sub-topic")
+
+
+SENTENCE_BATCH_AUDIT_SYSTEM = """You are a fact-checker sitting between an AI tutor
+and a text-to-speech engine. The numbered sentences below are about to be read
+aloud to a student. Stop false statements being vocalised.
+
+Reply with ONLY this JSON, one entry per sentence, same indexes:
+{{"results": [
+  {{"index": 0, "score": 0-100, "safe_text": "what to speak", "note": null}},
+  ...
+]}}
+
+SCORING — judge each sentence independently, in the context supplied:
+- 100-90  factually correct and consistent with the syllabus context
+- 89-80   correct but loosely worded; still safe to speak
+- 79-50   a real factual error, a wrong formula, an invented definition, or a
+          claim that contradicts the syllabus context
+- 49-0    seriously wrong or fabricated
+
+Do NOT penalise: conversational framing, encouragement, a question to the
+student, correct detail beyond the syllabus context, or phrasing that reads as
+incomplete because the sentence is part of a longer answer.
+
+For each sentence scoring {threshold} OR ABOVE:
+  "safe_text" = the original sentence unchanged, "note" = null.
+
+For each sentence scoring BELOW {threshold}:
+  "safe_text" = a corrected rewrite of similar length and tone stating the
+  TRUTH. Never speak the false claim, not even to deny it.
+  "note" = one short sentence telling the student what was wrong, e.g.
+  "Correction: a primary key cannot contain NULL values."
+
+Write safe_text and note in {language}. Keep technical terms in English.
+Return exactly {count} results. Be decisive — this gates audio playback."""
+
+
+def build_sentence_batch_audit_messages(
+    *,
+    sentences: List[str],
+    question: str,
+    subject: str,
+    subtopic: str,
+    context: Optional[str],
+    language: str,
+    threshold: int,
+) -> List[Dict[str, str]]:
+    body = (
+        f"Subject: {subject or 'unknown'}\n"
+        f"Sub-topic: {subtopic or 'unknown'}\n"
+        f"The student asked: {question or '(the tutor is teaching the sub-topic)'}\n"
+    )
+    if context:
+        body += f"\nSyllabus context (the student's own material):\n{context[:2000]}\n"
+    body += "\nSENTENCES TO CHECK:\n" + "\n".join(
+        f"{i}. {s}" for i, s in enumerate(sentences)
+    )
+
+    return [
+        {
+            "role": "system",
+            "content": SENTENCE_BATCH_AUDIT_SYSTEM.format(
+                language=language_name(language),
+                threshold=threshold,
+                count=len(sentences),
+            ),
+        },
+        {"role": "user", "content": body},
+    ]

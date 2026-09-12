@@ -282,3 +282,11 @@
 @keyframes recPulse{50%{box-shadow:0 0 0 6px rgba(216,64,58,.18)}}
 .orb.thinking svg,.orb.thinking .spinner{border-top-color:#fff}
 .dock .orb-sm.listening,.dock .orb-sm.thinking{border-color:var(--border-dark)}
+
+/* ---------- fact-check correction notes (accuracy guardrail) ---------- */
+.corrections{margin-top:10px;border:1.5px solid var(--gold);background:#FDF0DC;border-radius:9px;padding:10px 12px}
+.corrections-head{font-family:var(--font-display);font-size:12px;font-weight:700;color:var(--gold-deep);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.corrections-head::before{content:"⚠";font-size:13px}
+.corrections ul{list-style:disc;padding-left:18px;margin:0}
+.corrections li{font-size:13.5px;line-height:1.5;margin-bottom:3px;overflow-wrap:anywhere}
+.corrections li:last-child{margin-bottom:0}

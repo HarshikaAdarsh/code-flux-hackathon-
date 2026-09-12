@@ -28,7 +28,7 @@ from app.models import (
     Subtopic,
     Topic,
 )
-from app.services import llm, prompts
+from app.services import llm, prompts, verifier
 
 logger = logging.getLogger(__name__)
 
@@ -205,35 +205,58 @@ async def ensure_pool(
     if pool and pool.questions:
         return pool.questions
 
-    try:
+    # Track 2 gatekeeper: a question pool is written to the database and drives
+    # a student's mastery score, so nothing unverified may be stored. Generate,
+    # audit, and retry at most once with the auditor's critique.
+    async def generate(critique: Optional[str]):
         if kind == "coding":
-            data = await llm.complete_json(
-                prompts.build_coding_question_messages(
-                    subject=subject.name,
-                    topic=topic.title,
-                    subtopic=subtopic.title,
-                    difficulty=difficulty,
-                    count=POOL_SIZE,
-                    language=language,
-                ),
-                lane_name="background",
-                max_tokens=6000,
+            messages = prompts.build_coding_question_messages(
+                subject=subject.name,
+                topic=topic.title,
+                subtopic=subtopic.title,
+                difficulty=difficulty,
+                count=POOL_SIZE,
+                language=language,
             )
-            questions = _normalise_coding(data.get("questions") or [], difficulty)
         else:
-            data = await llm.complete_json(
-                prompts.build_theory_question_messages(
-                    subject=subject.name,
-                    topic=topic.title,
-                    subtopic=subtopic.title,
-                    difficulty=difficulty,
-                    count=POOL_SIZE,
-                    language=language,
-                    context=context,
-                ),
-                lane_name="background",
+            messages = prompts.build_theory_question_messages(
+                subject=subject.name,
+                topic=topic.title,
+                subtopic=subtopic.title,
+                difficulty=difficulty,
+                count=POOL_SIZE,
+                language=language,
+                context=context,
             )
-            questions = _normalise_theory(data.get("questions") or [], difficulty)
+        if critique:
+            messages.append({"role": "user", "content": critique})
+
+        data = await llm.complete_json(
+            messages,
+            lane_name="background",
+            max_tokens=6000 if kind == "coding" else 4096,
+        )
+        raw = data.get("questions") or []
+        return (
+            _normalise_coding(raw, difficulty)
+            if kind == "coding"
+            else _normalise_theory(raw, difficulty)
+        )
+
+    try:
+        questions, verdict = await verifier.generate_verified(
+            kind=(
+                f"{POOL_SIZE} {difficulty} coding problems with reference solutions"
+                if kind == "coding"
+                else f"{POOL_SIZE} {difficulty} multiple-choice questions with answer keys"
+            ),
+            generate=generate,
+            subject=subject.name,
+            topic=topic.title,
+            subtopic=subtopic.title,
+            difficulty=difficulty,
+            context=context,
+        )
     except llm.LLMUnavailable as exc:
         logger.error("Question generation unavailable: %s", exc)
         return []
@@ -242,6 +265,13 @@ async def ensure_pool(
         return []
 
     if not questions:
+        # Both attempts failed the quality gate. Storing them anyway would put
+        # wrong answer keys in front of a student, so store nothing — the
+        # caller surfaces the canonical disclaimer instead.
+        logger.warning(
+            "Refusing to store an unverified %s pool for '%s' (best %s/100)",
+            difficulty, subtopic.title, verdict.score,
+        )
         return []
 
     if pool:

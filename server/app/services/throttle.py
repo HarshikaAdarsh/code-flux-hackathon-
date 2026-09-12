@@ -39,6 +39,10 @@ class RateLimiter:
 _lanes: Dict[str, RateLimiter] = {
     "interactive": RateLimiter(settings.llm_interactive_rpm, "interactive"),
     "background": RateLimiter(settings.llm_background_rpm, "background"),
+    # Accuracy audits: latency-sensitive like `interactive`, but metered
+    # separately so a long lesson's sentence audits cannot delay the next
+    # tutor turn the student is waiting on.
+    "verify": RateLimiter(settings.llm_verify_rpm, "verify"),
 }
 
 

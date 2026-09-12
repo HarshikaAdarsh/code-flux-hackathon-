@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -34,7 +35,7 @@ from app.schemas import (
     QuestionOut,
     TestCaseResult,
 )
-from app.services import assessment, llm, prompts, sandbox
+from app.services import assessment, llm, prompts, sandbox, verifier
 from app.services.voice import normalise_language
 
 logger = logging.getLogger(__name__)
@@ -267,12 +268,13 @@ async def start_assessment(
 
     if await _load_question(db, attempt, subtopic, topic, subject) is None:
         await db.delete(attempt)
+        # Either the AI service is unavailable, or both generation attempts
+        # failed the quality gate. In the second case we deliberately store
+        # nothing: a wrong answer key would corrupt the student's mastery
+        # score, so a disclaimer is the honest outcome (Track 2 fallback).
         raise HTTPException(
             status_code=503,
-            detail=(
-                "Couldn't generate questions for this sub-topic right now — the "
-                "AI service is rate-limited. Try again in a minute."
-            ),
+            detail=verifier.fallback_message(subtopic.title),
         )
 
     await db.flush()
@@ -358,15 +360,31 @@ async def submit_code(
 
     # --- student gave up: reveal the solution, record as 'needed help' ---
     if payload.give_up:
-        walkthrough = await llm.complete(
-            prompts.build_solution_messages(
+        # Track 2: an official solution is the one thing a stuck student will
+        # take entirely on trust, so it is verified before it is shown.
+        async def make_walkthrough(critique):
+            messages = prompts.build_solution_messages(
                 problem=problem_text,
                 solution=question.get("solution", ""),
                 code=payload.code,
                 language=attempt.language,
-            ),
-            lane_name="interactive",
-            max_tokens=1024,
+            )
+            if critique:
+                messages.append({"role": "user", "content": critique})
+            result = await llm.complete(
+                messages, lane_name="interactive", max_tokens=1024
+            )
+            return result.text if result.provider != "none" else None
+
+        text, _verdict = await verifier.generate_verified(
+            kind="a worked solution walkthrough shown to a student who gave up",
+            generate=make_walkthrough,
+            subject=subject.name,
+            topic=topic.title,
+            subtopic=subtopic.title,
+        )
+        walkthrough = SimpleNamespace(
+            text=text or verifier.fallback_message(subtopic.title)
         )
         await _record_and_advance(
             db,

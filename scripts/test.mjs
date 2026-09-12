@@ -23,6 +23,7 @@ function suite(name, command, args, cwd) {
 
 suite('Adaptive engine (offline)', venvPython(), ['scripts/test_engine.py'], SERVER);
 suite('Code sandbox (needs Docker)', venvPython(), ['scripts/test_sandbox.py'], SERVER);
+suite('Accuracy guardrails', venvPython(), ['scripts/test_verification.py'], SERVER);
 
 if (await portBusy(8000)) {
   suite('Backend API', venvPython(), ['scripts/smoke_test.py'], SERVER);

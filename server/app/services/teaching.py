@@ -134,7 +134,7 @@ async def weak_areas_for_subject(
     return [title for title, _ in rows]
 
 
-async def build_messages(
+async def build_messages_with_context(
     db: AsyncSession,
     *,
     subject: Optional[Subject],
@@ -144,7 +144,12 @@ async def build_messages(
     user_message: str,
     language: str,
     style: str = "default",
-) -> List[Dict[str, str]]:
+) -> Tuple[List[Dict[str, str]], Optional[str]]:
+    """Returns (messages, retrieval context).
+
+    The context is handed back so the sentence auditor can check the tutor's
+    claims against the same syllabus material the tutor was given.
+    """
     context_chunks: List[str] = []
     if subject is not None:
         query = f"{subtopic.title if subtopic else ''} {user_message}".strip()
@@ -158,7 +163,9 @@ async def build_messages(
         else None
     )
 
-    return prompts.build_tutor_messages(
+    context_text = "\n---\n".join(context_chunks) if context_chunks else None
+
+    messages = prompts.build_tutor_messages(
         subject=subject.name if subject else "General study",
         subject_type=subject.type if subject else "non-coding",
         topic=topic.title if topic else "",
@@ -173,3 +180,10 @@ async def build_messages(
         ),
         style=style,
     )
+    return messages, context_text
+
+
+async def build_messages(db: AsyncSession, **kwargs) -> List[Dict[str, str]]:
+    """Messages only, for callers that do not audit sentences."""
+    messages, _ = await build_messages_with_context(db, **kwargs)
+    return messages
